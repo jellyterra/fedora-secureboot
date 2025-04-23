@@ -2,31 +2,17 @@
 
 Build trusted boot on Fedora and even more distributions.
 
-For new Linux user, you'd better to understand how the SecureBoot and the scripts works.
-
-For senior Linux user, you may want to learn more about how the scripts works.
-
-The process is as follows:
-```bash
-sb-keygen.sh
-sb-update-key.sh
-dracut-uki-gen.sh
-sb-sign-uki.sh
-```
-
-
-## Preparation
-
-Install dependencies
-- dracut
-- efitools
-- openssl
-- sbsigntools
-- systemd-boot: EFI stub file is required by **dracut**
+The process order is as follows:
 
 ```bash
-dnf install dracut efitools openssl sbsigntools systemd-boot
+dnf install openssl dracut efitools sbsigntools systemd-boot-unsigned
+./sb-keygen.sh
+./sb-update-key.sh
+./dracut-uki-gen.sh
 ```
+
+All done!
+Secure Boot is now active!
 
 > [!CAUTION]
 > Backup your UEFI configuration, ESP and bootloader, have a backup in case the unexpected happens.
@@ -35,22 +21,16 @@ dnf install dracut efitools openssl sbsigntools systemd-boot
 > You may have to disable SecureBoot when setting up under Custom Mode.
 > It depends on your UEFI firmware.
 
+# How it works?
 
 ## Configure SecureBoot in UEFI Setup
+
+Enable your Secure Boot to Custom Mode.
 
 > [!NOTE]
 > It depends on your UEFI firmware.
 
-
 ## Setup under Custom Mode: PK, KEK and DB keys
-
-```bash
-sb-keygen.sh
-sb-update-key.sh
-```
-
-> [!IMPORTANT]
-> Make sure your COMPLETELY understand how the commands operate before acting.
 
 Referenced [Simon Ruderich's article](https://ruderich.org/simon/notes/secure-boot-with-grub-and-signed-linux-and-initrd)
 
@@ -66,12 +46,11 @@ openssl req -new -x509 -newkey rsa:2048 -subj "/CN=db/"  -keyout db.key  -out db
 
 ```bash
 cert-to-efi-sig-list PK.crt PK.esl
-sign-efi-sig-list -k PK.key -c PK.crt PK PK.esl PK.auth
-
 cert-to-efi-sig-list KEK.crt KEK.esl
-sign-efi-sig-list -k PK.key -c PK.crt KEK KEK.esl KEK.auth
-
 cert-to-efi-sig-list db.crt db.esl
+
+sign-efi-sig-list -k PK.key -c PK.crt PK PK.esl PK.auth
+sign-efi-sig-list -k PK.key -c PK.crt KEK KEK.esl KEK.auth
 sign-efi-sig-list -k KEK.key -c KEK.crt db db.esl db.auth
 ```
 
@@ -95,14 +74,11 @@ efi-updatevar -f PK.auth PK
 
 ## Packing unified kernel image with dracut
 
-```bash
-dracut-uki-gen.sh [kernel version]
-```
-
 **dracut** is a shell script for generating initramfs/initrd image.
-The ```.conf``` files are shell scripts with environment variable definitions inside.
 
-Write the kernel cmdline to ```/etc/dracut.conf.d/cmdline.conf```:
+The `.conf` files are shell scripts with environment variable definitions inside.
+
+Write the kernel cmdline to `/etc/dracut.conf.d/cmdline.conf`:
 
 ```bash
 kernel_cmdline=$(cat /proc/cmdline)
@@ -124,9 +100,6 @@ dracut \
 
 
 ## Signing unified kernel image
-```bash
-$ sb-sign-uki.sh [kernel version]
-```
 
 ```bash
 sbsign --key db.key --cert db.crt --output /boot/efi/EFI/$(uname -r).efi /boot/efi/EFI/$(uname -r).efi
@@ -138,6 +111,7 @@ sbsign --key db.key --cert db.crt --output /boot/efi/EFI/$(uname -r).efi /boot/e
 ```bash
 efibootmgr \
     -L "$NAME $VERSION_ID - $(uname -r)" \
+    --disk /dev/nvme0n1p1 \
     --loader /boot/efi/EFI/$(uname -r).efi \
     --create
 ```
@@ -147,7 +121,7 @@ efibootmgr \
 
 Make sure everything is ready.
 
-Reboot and enter UEFI Setup. Enable SecureBoot.
+Reboot and enter UEFI Setup. SecureBoot should be now active.
 
 
 ## Check that your SecureBoot settings truly affect

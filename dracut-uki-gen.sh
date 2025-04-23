@@ -2,51 +2,68 @@
 
 set -e
 
-kernel=$(uname --kernel-release)
-kernel_cmdline=$(cat /proc/cmdline)
+if [ -z "$ESP" ]; then export ESP="/dev/nvme0n1p1"; fi
+if [ -z "$KEY" ]; then export KEY="./db.key"; fi
+if [ -z "$CERT" ]; then export CERT="./db.crt"; fi
+if [ -z "$KERNEL_RELEASE" ]; then export KERNEL_RELEASE="$(uname --kernel-release)"; fi
+if [ -z "$KERNEL_CMDLINE" ]; then export KERNEL_CMDLINE="$(cat /proc/cmdline)"; fi
 
-if [ ! -z $1 ]
-then
-    kernel=$1
-fi
+ARCH=$(uname -m)
+EFI="/boot/efi/EFI/${KERNEL_RELEASE}.efi"
 
-. /etc/os-release
+echo "Architecture: $ARCH"
+echo "DB key: $KEY"
+echo "DB cert: $CERT"
+echo "ESP: $ESP"
+echo "EFI target: $EFI"
+echo
+echo "KERNEL_RELEASE: $KERNEL_RELEASE"
+echo "KERNEL_CMDLINE: $KERNEL_CMDLINE"
+echo
 
-efi=/boot/efi/EFI/${kernel}.efi
-
-arch=$(uname -m)
-
-case $arch in
+case "$ARCH" in
     aarch64 | aarch64_be | armv8l | armv8b)
-        arch=aa64
+        export ARCH_SHORT=aa64
         ;;
     arm)
-        arch=arm
+        export ARCH_SHORT=arm
         ;;
     x86_64)
-        arch=x64
+        export ARCH_SHORT=x64
         ;;
     i386)
-        arch=ia32
+        export ARCH_SHORT=ia32
         ;;
     *)
-        echo "MACHINE_TYPE_SHORT_NAME of $arch is undefined"
+        echo "MACHINE_TYPE_SHORT_NAME of $ARCH is undefined. You may have to add it to this script manually."
         exit 1
         ;;
 esac
 
-echo "Kernel version: $kernel"
-echo "Kernel cmdline: $kernel_cmdline"
-echo "Generating unified kernel image: $efi"
+echo ">>> Generating UKI"
+echo
 
 dracut -f \
-    --kernel-cmdline "$kernel_cmdline" \
-    --uefi-stub /lib/systemd/boot/efi/linux${arch}.efi.stub \
-    --uefi $efi
+    --kver "$KERNEL_RELEASE" \
+    --kernel-cmdline "$KERNEL_CMDLINE" \
+    --uefi-stub "/lib/systemd/boot/efi/linux${ARCH_SHORT}.efi.stub" \
+    --uefi "$EFI"
 
-echo "Adding boot entry to UEFI"
+echo ">>> Signing UKI"
+
+sbsign --key "$KEY" --cert "$CERT" --output "$EFI" "$EFI"
+
+echo
+echo ">>> Registering to UEFI boot menu"
+echo
+
+. /etc/os-release
 
 efibootmgr \
-    -L "$NAME $VERSION_ID $kernel" \
-    --loader $efi \
+    -L "$NAME - $KERNEL_RELEASE" \
+    --disk "$ESP" \
+    --loader "/EFI/${KERNEL_RELEASE}.efi" \
     --create
+
+echo
+echo "Done."
